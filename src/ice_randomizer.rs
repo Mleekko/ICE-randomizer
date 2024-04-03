@@ -1,5 +1,5 @@
-use scrypto::prelude::*;
 use random::Random;
+use scrypto::prelude::*;
 
 #[derive(NonFungibleData, ScryptoSbor, Debug)]
 struct RandomIceTicket {
@@ -81,7 +81,6 @@ mod ice {
     }
 
     impl IceRandomizer {
-
         pub fn instantiate() -> (Global<IceRandomizer>, Bucket) {
             debug!("LOG:IceRandomizer::instantiate()\n");
 
@@ -138,7 +137,7 @@ mod ice {
                         "description" => "Ice Randomizer Ticket", locked;
                     }
                 ))
-                .mint_roles(mint_roles!{
+                .mint_roles(mint_roles! {
                     minter => rule!(require(global_caller(component_address)));
                     minter_updater => rule!(deny_all);
                 })
@@ -173,15 +172,13 @@ mod ice {
             let mut tickets: Bucket = Bucket::new(self.ticket_manager.address());
             for _ in 0..tickets_count {
                 let ticket_id = self.ticket_seq;
-                let index = self.tickets_count;
                 let local_id = NonFungibleLocalId::integer(ticket_id.into());
                 let ticket: Bucket = self.ticket_manager.mint_non_fungible(&local_id, RandomIceTicket {
                     result: None
                 });
                 tickets.put(ticket);
-                self.tickets_by_idx.insert(index, ticket_id);
-                self.tickets_id_to_idx.insert(ticket_id, index);
-                self.tickets_count += 1;
+
+                self.add_ticket(ticket_id);
             }
 
             self.ticket_seq += tickets_count;
@@ -199,7 +196,7 @@ mod ice {
                 match data.result {
                     Some(ice_id) => {
                         ice_ids.insert(ice_id);
-                    },
+                    }
                     None => {
                         water_count += 1;
                         let id = match non_fungible.local_id() {
@@ -207,7 +204,7 @@ mod ice {
                             _ => u32::MAX,
                         };
                         self.remove_ticket(id);
-                    },
+                    }
                 };
             }
             tickets.burn();
@@ -247,6 +244,14 @@ mod ice {
             }
         }
 
+
+        fn add_ticket(&mut self, ticket_id: u32) {
+            let index = self.tickets_count;
+            self.tickets_by_idx.insert(index, ticket_id);
+            self.tickets_id_to_idx.insert(ticket_id, index);
+            self.tickets_count += 1;
+        }
+
         fn remove_ticket(&mut self, id: u32) {
             let idx = self.tickets_id_to_idx.remove(&id).unwrap();
             self.tickets_by_idx.remove(&idx);
@@ -258,7 +263,5 @@ mod ice {
             }
             self.tickets_count -= 1;
         }
-
-
     }
 }
