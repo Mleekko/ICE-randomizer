@@ -12,8 +12,8 @@ struct RandomIceTicket {
 mod ice {
     /* Rrc404 Component */
     extern_blueprint!(
-        "package_tdx_2_1p4nswlz52epvzayucenlch40sujdv22scuqy28zc7we5w0ly82mrat",
-        // "package_sim1p5qqqqqqqyqszqgqqqqqqqgpqyqsqqqqxumnwqgqqqqqqycnnzj0hj",
+        // "package_tdx_2_1p4nswlz52epvzayucenlch40sujdv22scuqy28zc7we5w0ly82mrat",
+        "package_sim1p5qqqqqqqqqqqqqqqqqpecwwrnsqqqqqqqqqqqqqqqqqqqqqj5zvnh",
         Rrc404NFT {
             fn freeze(&self, deposit: Bucket) -> (Bucket, Bucket);
             fn melt(&self, nft_bucket: Bucket) -> Bucket;
@@ -21,14 +21,16 @@ mod ice {
     );
     const RRC404: Global<Rrc404NFT> = global_component!(
         Rrc404NFT,
-        "component_tdx_2_1czuyqr546ptgwn40gtearfe39jfp4w55jx8fsfyanna896l7s4sc8a"
-        // "component_sim1cqqqqqqqqyqszqgqqqqqqqgpqyqsqqqqxumnwqgqqqqqqycnf7v0gx"
+        // "component_tdx_2_1czuyqr546ptgwn40gtearfe39jfp4w55jx8fsfyanna896l7s4sc8a"
+        "component_sim1cqqqqqqqqqqqqqqqqqqpecwwrnsqqqqqqqqqqqqqqqqqqqqqgguvvr"
     );
     const WATER_RESOURCE: ResourceManager = resource_manager!(
-        "resource_tdx_2_1thpd5wxvj7pz4u67z39l424vd4ajnnnx2sjff8wktq6cnlwkenwe0e"
+        // "resource_tdx_2_1thpd5wxvj7pz4u67z39l424vd4ajnnnx2sjff8wktq6cnlwkenwe0e"
+        "resource_sim1t5qqqqqqqqqqqqqqqqqpecwwrnsqqqqqqqqqqqqqqqqqqqqqs3ask4"
     );
     const ICE_RESOURCE: ResourceManager = resource_manager!(
-        "resource_tdx_2_1n2aclv9vx3z2hxxxafswfqlpt3cvqfkw7dc4eqrp8n4yan6s47ad0n"
+        // "resource_tdx_2_1n2aclv9vx3z2hxxxafswfqlpt3cvqfkw7dc4eqrp8n4yan6s47ad0n"
+        "resource_sim1ngqqqqqqqqqqqqqqqqqpecwwrnsqqqqqqqqqqqqqqqqqqqqq6lw2hr"
     );
 
     /* .Random */
@@ -219,7 +221,7 @@ mod ice {
         }
 
         pub fn do_mint(&mut self, n: u32, random_seed: Vec<u8>) {
-            debug!("LOG:IceRandomizer::do_mint({:?}, {:?})", nft_id, random_seed);
+            debug!("LOG:IceRandomizer::do_mint({:?}, {:?})", n, random_seed);
 
             let bucket = self.water.take(n);
             let (minted_ice_fungible, _empty) = RRC404.freeze(bucket);

@@ -11,6 +11,7 @@ random = { git = "https://github.com/dot-random/dot-random", rev = "55cf37d", pa
 
 [dev-dependencies]
 ice-randomizer = { path = ".", features = ["test"] }
+ice_rrc404v1 = { git = "https://github.com/Mleekko/ice_rrc404v1", rev = "d99f72d", package = "rrc404"} # branch = "main",
 dot-random-test-utils = { git = "https://github.com/dot-random/dot-random", rev = "55cf37d", package = "test-utils" }
 transaction = { git = "https://github.com/radixdlt/radixdlt-scrypto", tag = "v1.1.1" }
 radix-engine = { git = "https://github.com/radixdlt/radixdlt-scrypto", tag = "v1.1.1" }
