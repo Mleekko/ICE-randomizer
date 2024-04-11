@@ -172,8 +172,8 @@ mod ice {
             let tickets_count: u32 = quotient.try_into().unwrap();
 
             let mut tickets: Bucket = Bucket::new(self.ticket_manager.address());
-            for _ in 0..tickets_count {
-                let ticket_id = self.ticket_seq;
+            for i in 0..tickets_count {
+                let ticket_id = self.ticket_seq + i;
                 let local_id = NonFungibleLocalId::integer(ticket_id.into());
                 let ticket: Bucket = self.ticket_manager.mint_non_fungible(&local_id, RandomIceTicket {
                     result: None
@@ -224,7 +224,7 @@ mod ice {
             debug!("LOG:IceRandomizer::do_mint({:?}, {:?})", n, random_seed);
 
             let bucket = self.water.take(n);
-            let (minted_ice_fungible, _empty) = RRC404.freeze(bucket);
+            let (minted_ice_fungible, empty_bucket) = RRC404.freeze(bucket);
 
             let minted_ice = minted_ice_fungible.as_non_fungible();
             let nft_ids = minted_ice.non_fungible_local_ids();
@@ -244,6 +244,8 @@ mod ice {
                     Some(ice_id),
                 );
             }
+
+            empty_bucket.drop_empty();
         }
 
 
@@ -258,10 +260,12 @@ mod ice {
             let idx = self.tickets_id_to_idx.remove(&id).unwrap();
             self.tickets_by_idx.remove(&idx);
 
+            // if there is a gap - move the last ticket there
             let last_idx = self.tickets_count - 1;
             if idx != last_idx {
                 let last = self.tickets_by_idx.remove(&last_idx).unwrap();
                 self.tickets_id_to_idx.insert(last, idx);
+                self.tickets_by_idx.insert(idx, last);
             }
             self.tickets_count -= 1;
         }
