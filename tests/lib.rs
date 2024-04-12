@@ -3,68 +3,19 @@ use std::env;
 use dot_random_test_utils::{deploy_random_component, RandomTestEnv};
 use dot_random_test_utils::cargo::get_repo_sub_dir;
 use radix_engine::vm::NoExtension;
-use scrypto::prelude::{KeyValueStore, ResourceManager};
 use scrypto::this_package;
 use scrypto_test::prelude::InMemorySubstateDatabase;
 use scrypto_unit::*;
 use transaction::prelude::*;
 
-pub const RRC404_PACKAGE: PackageAddress = PackageAddress::new_or_panic([
-    13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 28, 225, 206, 28, 224, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-]); // package_sim1p5qqqqqqqqqqqqqqqqqpecwwrnsqqqqqqqqqqqqqqqqqqqqqj5zvnh
+use consts::{RRC404_COMPONENT, RRC404_ICE, RRC404_PACKAGE, RRC404_WATER};
+use structs::{Account, DeployedEnv, IceRandomizerState, TestEnv};
 
-pub const RRC404_COMPONENT: ComponentAddress = ComponentAddress::new_or_panic([
-    192, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 28, 225, 206, 28, 224, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-]); // component_sim1cqqqqqqqqqqqqqqqqqqpecwwrnsqqqqqqqqqqqqqqqqqqqqqgguvvr
-
-pub const RRC404_WATER: ResourceAddress = ResourceAddress::new_or_panic([
-    93, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 28, 225, 206, 28, 224, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-]); // resource_sim1t5qqqqqqqqqqqqqqqqqpecwwrnsqqqqqqqqqqqqqqqqqqqqqs3ask4
-
-pub const RRC404_ICE: ResourceAddress = ResourceAddress::new_or_panic([
-    154, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 28, 225, 206, 28, 224, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-]); // resource_sim1ngqqqqqqqqqqqqqqqqqpecwwrnsqqqqqqqqqqqqqqqqqqqqq6lw2hr
+mod consts;
+mod structs;
 
 
 pub const AMOUNTS: [Decimal; 5] = [dec!(10), dec!(40), dec!(5), dec!(25), dec!(60)];
-
-
-#[derive(Copy, Clone)]
-pub struct Account {
-    pub key: Secp256k1PublicKey,
-    pub address: ComponentAddress,
-}
-
-#[derive(Copy, Clone)]
-pub struct TestEnv {
-    pub owner: Account,
-    pub users: [Account; 5],
-}
-
-#[derive(Copy, Clone)]
-pub struct DeployedEnv {
-    pub env: TestEnv,
-
-    pub rrc404_component: ComponentAddress,
-    pub ice_randomizer: ComponentAddress,
-    pub randomizer_owner: ResourceAddress,
-    pub ticket_address: ResourceAddress,
-}
-
-#[derive(ScryptoSbor)]
-struct IceRandomizerState {
-    ticket_manager: ResourceManager,
-
-    ticket_seq: u32,
-    tickets_by_idx: KeyValueStore<u16, u32>,
-    tickets_id_to_idx: KeyValueStore<u32, u16>,
-    tickets_count: u16,
-
-    melt_list: Vec<u32>,
-
-    water: Vault,
-    ice: NonFungibleVault,
-}
 
 impl TestEnv {
     pub fn init(test_runner: &mut TestRunner<NoExtension, InMemorySubstateDatabase>) -> Self {
@@ -311,8 +262,8 @@ fn test_whole_flow() {
     // 2. Owner triggers random mint in batches [280 = 56 x 5], with the first batch marking 40 to be melted
     for index in 0u32..5 {
         let manifest_arguments = match index {
-            0 => {manifest_args!(56u8, 40u8)},
-            _ => {manifest_args!(56u8, 0u8)},
+            0 => { manifest_args!(56u8, 40u8) }
+            _ => { manifest_args!(56u8, 0u8) }
         };
         let receipt = test_runner.execute_manifest(
             ManifestBuilder::new()
