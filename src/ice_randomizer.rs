@@ -61,6 +61,7 @@ mod ice {
             deposit => PUBLIC;
             withdraw => PUBLIC;
             mint => restrict_to: [OWNER];
+            melt => restrict_to: [OWNER];
             do_mint => restrict_to: [random_provider];
         }
     }
@@ -77,6 +78,8 @@ mod ice {
         tickets_id_to_idx: KeyValueStore<u32, u16>,
         /// The number of tickets still pending draw.
         tickets_count: u16,
+
+        melt_list: Vec<u32>,
 
         water: Vault,
         ice: NonFungibleVault,
@@ -98,6 +101,7 @@ mod ice {
                 tickets_by_idx: KeyValueStore::new_with_registered_type(),
                 tickets_id_to_idx: KeyValueStore::new_with_registered_type(),
                 tickets_count: 0,
+                melt_list: Vec::new(),
                 water: Vault::new(WATER_RESOURCE.address()),
                 ice: Vault::new(ICE_RESOURCE.address()).as_non_fungible(),
             }
@@ -213,17 +217,26 @@ mod ice {
             return (self.ice.take_non_fungibles(&ice_ids).into(), self.water.take(water_count));
         }
 
-        pub fn mint(&mut self, n: u32) -> u32 {
+
+        pub fn mint(&mut self, mint_count: u8, melt_count: u8) -> u32 {
             let address = Runtime::global_component().address();
             let method_name = "do_mint".into();
             let on_error = "".into();
-            return RNG.request_random(address, method_name, on_error, n, None, 60u8);
+            // `key` encodes two variables: (key = m * 100 + n)
+            // 1) n - the number of NFTs to mint
+            // 2) m - the number just minted NFTs to add to the "melt pool".
+            // Using such a compound key allows to avoid maintaining one more KVS.
+            let key: u32 = (melt_count * 100 + mint_count) as u32;
+            return RNG.request_random(address, method_name, on_error, key, None, 60u8);
         }
 
-        pub fn do_mint(&mut self, n: u32, random_seed: Vec<u8>) {
-            debug!("LOG:IceRandomizer::do_mint({:?}, {:?})", n, random_seed);
+        pub fn do_mint(&mut self, key: u32, random_seed: Vec<u8>) {
+            debug!("LOG:IceRandomizer::do_mint({:?}, {:?})", key, random_seed);
 
-            let bucket = self.water.take(n);
+            let mint_count = key % 100;
+            let mut melt_count = key / 100;
+
+            let bucket = self.water.take(mint_count);
             let (minted_ice_fungible, empty_bucket) = RRC404.freeze(bucket);
 
             let minted_ice = minted_ice_fungible.as_non_fungible();
@@ -243,9 +256,41 @@ mod ice {
                     "result",
                     Some(ice_id),
                 );
+                if melt_count > 0 {
+                    self.melt_list.push(winner);
+                    melt_count -= 1;
+                }
             }
 
             empty_bucket.drop_empty();
+        }
+
+        pub fn melt(&mut self) {
+            debug!("LOG:IceRandomizer::melt()");
+
+            let mut ice_to_melt: IndexSet<NonFungibleLocalId> = IndexSet::new();
+            for ticket_id in self.melt_list.clone() {
+                let local_id = NonFungibleLocalId::integer(ticket_id as u64);
+
+                if self.ticket_manager.non_fungible_exists(&local_id) {
+                    let data: RandomIceTicket = self.ticket_manager.get_non_fungible_data(&local_id);
+                    match data.result {
+                        Some(ice_id) => {
+                            ice_to_melt.insert(ice_id);
+                            self.add_ticket(ticket_id);
+                        }
+                        None => {
+                            panic!("Not possible");
+                        }
+                    };
+                } // ticket already burned - just ignore
+
+            }
+
+            let ice_bucket = self.ice.take_non_fungibles(&ice_to_melt).into();
+            let water_bucket = RRC404.melt(ice_bucket);
+            self.water.put(water_bucket);
+            self.melt_list.clear();
         }
 
 

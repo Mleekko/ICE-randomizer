@@ -72,9 +72,9 @@ impl TestEnv {
         };
     }
 
-    pub fn deploy(mut self, runner: &mut TestRunner<NoExtension, InMemorySubstateDatabase>) -> (RandomTestEnv<NoExtension, InMemorySubstateDatabase>, DeployedEnv) {
+    pub fn deploy(self, runner: &mut TestRunner<NoExtension, InMemorySubstateDatabase>) -> (RandomTestEnv<NoExtension, InMemorySubstateDatabase>, DeployedEnv) {
         // Deploy RandomComponent
-        let mut random_env = deploy_random_component(runner, "55cf37d");
+        let random_env = deploy_random_component(runner, "55cf37d");
 
         // Deploy ICE-RRC404
         let rrc404v1_path = get_repo_sub_dir("ice_rrc404v1", "d99f72d", "");
@@ -155,20 +155,18 @@ impl TestEnv {
 }
 
 #[test]
-fn test_something() {
+fn test_mint_partial() {
     // Arrange
     let mut test_runner = TestRunnerBuilder::new().build();
-    let mut env = TestEnv::init(&mut test_runner);
-    let (mut random_env, mut test) = env.deploy(&mut test_runner);
+    let env = TestEnv::init(&mut test_runner);
+    let (mut random_env, test) = env.deploy(&mut test_runner);
 
     allocate_tokens(&mut test_runner, test);
 
     // Act
     // 1. Users lock tokens
-    let mut index = 0usize;
-    while index < AMOUNTS.len() {
+    for index in 0..AMOUNTS.len() {
         deposit_water(&mut test_runner, test, env.users[index], AMOUNTS[index]);
-        index += 1;
     }
 
     // 2. Owner triggers random mint - should return callback id: 1
@@ -178,7 +176,7 @@ fn test_something() {
             .call_method(
                 test.ice_randomizer,
                 "mint",
-                manifest_args!(80u32),
+                manifest_args!(80u8, 0u8),
             )
             .build(), vec![NonFungibleGlobalId::from_public_key(&env.owner.key)]);
     let result = receipt.expect_commit_success();
@@ -195,15 +193,13 @@ fn test_something() {
     assert_eq!(dec!(60), balance_water);
 
     // 4. Users withdraw ICE
-    let mut index = 0usize;
-    while index < AMOUNTS.len() {
+    for index in 0..AMOUNTS.len() {
         let account = env.users[index];
         withdraw_ice(&mut test_runner, test, account, AMOUNTS[index]);
         println!("Balance: {} -> {:?}/{:?}", index,
                  test_runner.get_component_balance(account.address, RRC404_WATER),
                  test_runner.get_component_balance(account.address, RRC404_ICE)
         );
-        index += 1;
     }
 
     // Assert component is empty
@@ -212,6 +208,68 @@ fn test_something() {
     let balance_water = test_runner.get_component_balance(test.ice_randomizer, RRC404_WATER);
     assert_eq!(dec!(0), balance_water);
 }
+
+#[test]
+fn test_mint_in_batches() {
+    // Arrange
+    let mut test_runner = TestRunnerBuilder::new().build();
+    let env = TestEnv::init(&mut test_runner);
+    let (mut random_env, test) = env.deploy(&mut test_runner);
+
+    allocate_tokens(&mut test_runner, test);
+
+    // Act
+    // 1. Users lock tokens
+    for index in 0..AMOUNTS.len() {
+        deposit_water(&mut test_runner, test, env.users[index], AMOUNTS[index]);
+    }
+
+    // 2. Owner triggers random mint in batches [140 = 28 x 5]
+    for index in 0u32..5 {
+        let receipt = test_runner.execute_manifest_ignoring_fee(
+            ManifestBuilder::new()
+                .create_proof_from_account_of_amount(env.owner.address, test.randomizer_owner, dec!(1))
+                .call_method(
+                    test.ice_randomizer,
+                    "mint",
+                    manifest_args!(28u8, 0u8),
+                )
+                .build(), vec![NonFungibleGlobalId::from_public_key(&env.owner.key)]);
+        let result = receipt.expect_commit_success();
+        result.outcome.expect_success();
+
+        // 3. Simulate a TX that calls RandomComponent.execute() to do the actual mint - should mint an NFT
+        random_env.execute_next(&mut test_runner, index + 1);
+    }
+
+
+    // Assert minted 140 ICE
+    let balance_ice = test_runner.get_component_balance(test.ice_randomizer, RRC404_ICE);
+    assert_eq!(dec!(140), balance_ice);
+    let balance_water = test_runner.get_component_balance(test.ice_randomizer, RRC404_WATER);
+    assert_eq!(dec!(0), balance_water);
+
+    // 4. Users withdraw ICE
+    for index in 0..AMOUNTS.len() {
+        let account = env.users[index];
+        withdraw_ice(&mut test_runner, test, account, AMOUNTS[index]);
+        let balance_water = test_runner.get_component_balance(account.address, RRC404_WATER);
+        let balance_ice = test_runner.get_component_balance(account.address, RRC404_ICE);
+        println!("Balance: {} -> {:?}/{:?}", index,
+                 balance_water,
+                 balance_ice
+        );
+        assert_eq!(dec!(0), balance_water);
+        assert_eq!(Decimal::from(AMOUNTS[index]), balance_ice);
+    }
+
+    // Assert component is empty
+    let balance_ice = test_runner.get_component_balance(test.ice_randomizer, RRC404_ICE);
+    assert_eq!(dec!(0), balance_ice);
+    let balance_water = test_runner.get_component_balance(test.ice_randomizer, RRC404_WATER);
+    assert_eq!(dec!(0), balance_water);
+}
+
 
 
 pub fn allocate_tokens(runner: &mut TestRunner<NoExtension, InMemorySubstateDatabase>, test: DeployedEnv) {
@@ -230,7 +288,7 @@ pub fn allocate_tokens(runner: &mut TestRunner<NoExtension, InMemorySubstateData
             .try_deposit_or_abort(test.env.users[4].address, None, "b5")
             .build(), vec![NonFungibleGlobalId::from_public_key(&test.env.owner.key)]);
     let result = receipt.expect_commit_success();
-    let out = result.outcome.expect_success();
+    result.outcome.expect_success();
 }
 
 pub fn deposit_water(runner: &mut TestRunner<NoExtension, InMemorySubstateDatabase>, test: DeployedEnv, user: Account, amount: Decimal) {
