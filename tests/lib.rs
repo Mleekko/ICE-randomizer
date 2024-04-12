@@ -3,6 +3,7 @@ use std::env;
 use dot_random_test_utils::{deploy_random_component, RandomTestEnv};
 use dot_random_test_utils::cargo::get_repo_sub_dir;
 use radix_engine::vm::NoExtension;
+use scrypto::prelude::{KeyValueStore, ResourceManager};
 use scrypto::this_package;
 use scrypto_test::prelude::InMemorySubstateDatabase;
 use scrypto_unit::*;
@@ -48,6 +49,21 @@ pub struct DeployedEnv {
     pub ice_randomizer: ComponentAddress,
     pub randomizer_owner: ResourceAddress,
     pub ticket_address: ResourceAddress,
+}
+
+#[derive(ScryptoSbor)]
+struct IceRandomizerState {
+    ticket_manager: ResourceManager,
+
+    ticket_seq: u32,
+    tickets_by_idx: KeyValueStore<u16, u32>,
+    tickets_id_to_idx: KeyValueStore<u32, u16>,
+    tickets_count: u16,
+
+    melt_list: Vec<u32>,
+
+    water: Vault,
+    ice: NonFungibleVault,
 }
 
 impl TestEnv {
@@ -157,21 +173,23 @@ impl TestEnv {
 #[test]
 fn test_mint_partial() {
     // Arrange
-    let mut test_runner = TestRunnerBuilder::new().build();
+    let mut test_runner = TestRunnerBuilder::new().without_trace().build();
     let env = TestEnv::init(&mut test_runner);
     let (mut random_env, test) = env.deploy(&mut test_runner);
 
-    allocate_tokens(&mut test_runner, test);
+    let amounts = AMOUNTS;
+    allocate_tokens(&mut test_runner, test, amounts);
 
     // Act
     // 1. Users lock tokens
-    for index in 0..AMOUNTS.len() {
-        deposit_water(&mut test_runner, test, env.users[index], AMOUNTS[index]);
+    for index in 0..amounts.len() {
+        deposit_water(&mut test_runner, test, env.users[index], amounts[index]);
     }
 
     // 2. Owner triggers random mint - should return callback id: 1
-    let receipt = test_runner.execute_manifest_ignoring_fee(
+    let receipt = test_runner.execute_manifest(
         ManifestBuilder::new()
+            .lock_fee_from_faucet()
             .create_proof_from_account_of_amount(env.owner.address, test.randomizer_owner, dec!(1))
             .call_method(
                 test.ice_randomizer,
@@ -193,9 +211,9 @@ fn test_mint_partial() {
     assert_eq!(dec!(60), balance_water);
 
     // 4. Users withdraw ICE
-    for index in 0..AMOUNTS.len() {
+    for index in 0..amounts.len() {
         let account = env.users[index];
-        withdraw_ice(&mut test_runner, test, account, AMOUNTS[index]);
+        withdraw_ice(&mut test_runner, test, account, amounts[index]);
         println!("Balance: {} -> {:?}/{:?}", index,
                  test_runner.get_component_balance(account.address, RRC404_WATER),
                  test_runner.get_component_balance(account.address, RRC404_ICE)
@@ -212,22 +230,24 @@ fn test_mint_partial() {
 #[test]
 fn test_mint_in_batches() {
     // Arrange
-    let mut test_runner = TestRunnerBuilder::new().build();
+    let mut test_runner = TestRunnerBuilder::new().without_trace().build();
     let env = TestEnv::init(&mut test_runner);
     let (mut random_env, test) = env.deploy(&mut test_runner);
 
-    allocate_tokens(&mut test_runner, test);
+    let amounts = AMOUNTS;
+    allocate_tokens(&mut test_runner, test, amounts);
 
     // Act
     // 1. Users lock tokens
-    for index in 0..AMOUNTS.len() {
-        deposit_water(&mut test_runner, test, env.users[index], AMOUNTS[index]);
+    for index in 0..amounts.len() {
+        deposit_water(&mut test_runner, test, env.users[index], amounts[index]);
     }
 
     // 2. Owner triggers random mint in batches [140 = 28 x 5]
     for index in 0u32..5 {
-        let receipt = test_runner.execute_manifest_ignoring_fee(
+        let receipt = test_runner.execute_manifest(
             ManifestBuilder::new()
+                .lock_fee_from_faucet()
                 .create_proof_from_account_of_amount(env.owner.address, test.randomizer_owner, dec!(1))
                 .call_method(
                     test.ice_randomizer,
@@ -250,9 +270,9 @@ fn test_mint_in_batches() {
     assert_eq!(dec!(0), balance_water);
 
     // 4. Users withdraw ICE
-    for index in 0..AMOUNTS.len() {
+    for index in 0..amounts.len() {
         let account = env.users[index];
-        withdraw_ice(&mut test_runner, test, account, AMOUNTS[index]);
+        withdraw_ice(&mut test_runner, test, account, amounts[index]);
         let balance_water = test_runner.get_component_balance(account.address, RRC404_WATER);
         let balance_ice = test_runner.get_component_balance(account.address, RRC404_ICE);
         println!("Balance: {} -> {:?}/{:?}", index,
@@ -260,7 +280,110 @@ fn test_mint_in_batches() {
                  balance_ice
         );
         assert_eq!(dec!(0), balance_water);
-        assert_eq!(Decimal::from(AMOUNTS[index]), balance_ice);
+        assert_eq!(Decimal::from(amounts[index]), balance_ice);
+    }
+
+    // Assert component is empty
+    let balance_ice = test_runner.get_component_balance(test.ice_randomizer, RRC404_ICE);
+    assert_eq!(dec!(0), balance_ice);
+    let balance_water = test_runner.get_component_balance(test.ice_randomizer, RRC404_WATER);
+    assert_eq!(dec!(0), balance_water);
+}
+
+#[test]
+fn test_whole_flow() {
+    // Arrange
+    // No idea why, but `advance_to_round_at_timestamp()` requires this custom genesis to succeed.
+    let custom_genesis = CustomGenesis::default(Epoch::of(1), CustomGenesis::default_consensus_manager_config());
+    let mut test_runner = TestRunnerBuilder::new().with_custom_genesis(custom_genesis).without_trace().build();
+    let env = TestEnv::init(&mut test_runner);
+    let (mut random_env, test) = env.deploy(&mut test_runner);
+
+    let amounts = [dec!(20), dec!(70), dec!(15), dec!(55), dec!(120)];
+    allocate_tokens(&mut test_runner, test, amounts);
+
+    // Act
+    // 1. Users lock tokens
+    for index in 0..amounts.len() {
+        deposit_water(&mut test_runner, test, env.users[index], amounts[index]);
+    }
+
+    // 2. Owner triggers random mint in batches [280 = 56 x 5], with the first batch marking 40 to be melted
+    for index in 0u32..5 {
+        let manifest_arguments = match index {
+            0 => {manifest_args!(56u8, 40u8)},
+            _ => {manifest_args!(56u8, 0u8)},
+        };
+        let receipt = test_runner.execute_manifest(
+            ManifestBuilder::new()
+                .lock_fee_from_faucet()
+                .create_proof_from_account_of_amount(env.owner.address, test.randomizer_owner, dec!(1))
+                .call_method(
+                    test.ice_randomizer,
+                    "mint",
+                    manifest_arguments,
+                )
+                .build(), vec![NonFungibleGlobalId::from_public_key(&env.owner.key)]);
+        let result = receipt.expect_commit_success();
+        result.outcome.expect_success();
+
+        // 3. Simulate a TX that calls RandomComponent.execute() to do the actual mint - should mint an NFT
+        random_env.execute_next(&mut test_runner, index + 1);
+
+        if index == 0 {
+            // advance time by 4hrs and 1 minute, so later we can melt
+            let round = test_runner.get_consensus_manager_state().round.number();
+            let current_time = test_runner.get_current_proposer_timestamp_ms();
+            let ts = current_time + 4 * 60 * 60 * 1000 + 61000;
+            let res = test_runner.advance_to_round_at_timestamp(Round::of(round + 1), ts);
+            res.expect_commit_success().outcome.expect_success();
+        }
+    }
+
+    // Assert minted 280 ICE
+    let balance_ice = test_runner.get_component_balance(test.ice_randomizer, RRC404_ICE);
+    assert_eq!(dec!(280), balance_ice);
+    let balance_water = test_runner.get_component_balance(test.ice_randomizer, RRC404_WATER);
+    assert_eq!(dec!(0), balance_water);
+    // Assert 40 NFTs to melt
+    let state: IceRandomizerState = test_runner.component_state::<IceRandomizerState>(test.ice_randomizer);
+    assert_eq!(40, state.melt_list.len());
+
+    // 4. Owner melts the first 40 minted NFTS
+    let receipt = test_runner.execute_manifest(
+        ManifestBuilder::new()
+            .lock_fee_from_faucet()
+            .create_proof_from_account_of_amount(env.owner.address, test.randomizer_owner, dec!(1))
+            .call_method(
+                test.ice_randomizer,
+                "melt",
+                manifest_args!(),
+            )
+            .build(), vec![NonFungibleGlobalId::from_public_key(&env.owner.key)]);
+    let result = receipt.expect_commit_success();
+    result.outcome.expect_success();
+
+    // Assert melted 40 ICE
+    let balance_ice = test_runner.get_component_balance(test.ice_randomizer, RRC404_ICE);
+    assert_eq!(dec!(240), balance_ice);
+    let balance_water = test_runner.get_component_balance(test.ice_randomizer, RRC404_WATER);
+    assert_eq!(dec!(40), balance_water);
+    // Assert 0 NFTs to melt
+    let state: IceRandomizerState = test_runner.component_state::<IceRandomizerState>(test.ice_randomizer);
+    assert_eq!(0, state.melt_list.len());
+
+
+    // 5. Users withdraw ICE
+    for index in 0..amounts.len() {
+        let account = env.users[index];
+        withdraw_ice(&mut test_runner, test, account, amounts[index]);
+        let balance_water = test_runner.get_component_balance(account.address, RRC404_WATER);
+        let balance_ice = test_runner.get_component_balance(account.address, RRC404_ICE);
+        println!("Balance: {} -> {:?}/{:?}", index,
+                 balance_water,
+                 balance_ice
+        );
+        assert_eq!(Decimal::from(amounts[index]), balance_ice + balance_water);
     }
 
     // Assert component is empty
@@ -271,16 +394,24 @@ fn test_mint_in_batches() {
 }
 
 
+fn sum(amounts: &[Decimal]) -> Decimal {
+    let mut sum = Decimal::zero();
+    for amount in amounts {
+        sum += *amount;
+    }
+    return sum;
+}
 
-pub fn allocate_tokens(runner: &mut TestRunner<NoExtension, InMemorySubstateDatabase>, test: DeployedEnv) {
-    let receipt = runner.execute_manifest_ignoring_fee(
+pub fn allocate_tokens(runner: &mut TestRunner<NoExtension, InMemorySubstateDatabase>, test: DeployedEnv, amounts: [Decimal; 5]) {
+    let receipt = runner.execute_manifest(
         ManifestBuilder::new()
-            .withdraw_from_account(test.env.owner.address, RRC404_WATER, dec!(140))
-            .take_from_worktop(RRC404_WATER, AMOUNTS[0], "b1")
-            .take_from_worktop(RRC404_WATER, AMOUNTS[1], "b2")
-            .take_from_worktop(RRC404_WATER, AMOUNTS[2], "b3")
-            .take_from_worktop(RRC404_WATER, AMOUNTS[3], "b4")
-            .take_from_worktop(RRC404_WATER, AMOUNTS[4], "b5")
+            .lock_fee_from_faucet()
+            .withdraw_from_account(test.env.owner.address, RRC404_WATER, sum(&amounts))
+            .take_from_worktop(RRC404_WATER, amounts[0], "b1")
+            .take_from_worktop(RRC404_WATER, amounts[1], "b2")
+            .take_from_worktop(RRC404_WATER, amounts[2], "b3")
+            .take_from_worktop(RRC404_WATER, amounts[3], "b4")
+            .take_from_worktop(RRC404_WATER, amounts[4], "b5")
             .try_deposit_or_abort(test.env.users[0].address, None, "b1")
             .try_deposit_or_abort(test.env.users[1].address, None, "b2")
             .try_deposit_or_abort(test.env.users[2].address, None, "b3")
@@ -292,8 +423,9 @@ pub fn allocate_tokens(runner: &mut TestRunner<NoExtension, InMemorySubstateData
 }
 
 pub fn deposit_water(runner: &mut TestRunner<NoExtension, InMemorySubstateDatabase>, test: DeployedEnv, user: Account, amount: Decimal) {
-    let receipt = runner.execute_manifest_ignoring_fee(
+    let receipt = runner.execute_manifest(
         ManifestBuilder::new()
+            .lock_fee_from_faucet()
             .withdraw_from_account(user.address, RRC404_WATER, amount)
             .take_all_from_worktop(RRC404_WATER, "bucket1")
             .with_name_lookup(|builder, lookup| {
@@ -310,8 +442,9 @@ pub fn deposit_water(runner: &mut TestRunner<NoExtension, InMemorySubstateDataba
 }
 
 pub fn withdraw_ice(runner: &mut TestRunner<NoExtension, InMemorySubstateDatabase>, test: DeployedEnv, user: Account, amount: Decimal) {
-    let receipt = runner.execute_manifest_ignoring_fee(
+    let receipt = runner.execute_manifest(
         ManifestBuilder::new()
+            .lock_fee_from_faucet()
             .withdraw_from_account(user.address, test.ticket_address, amount)
             .take_all_from_worktop(test.ticket_address, "bucket1")
             .with_name_lookup(|builder, lookup| {

@@ -226,7 +226,7 @@ mod ice {
             // 1) n - the number of NFTs to mint
             // 2) m - the number just minted NFTs to add to the "melt pool".
             // Using such a compound key allows to avoid maintaining one more KVS.
-            let key: u32 = (melt_count * 100 + mint_count) as u32;
+            let key: u32 = (melt_count as u32) * 100u32 + mint_count as u32;
             return RNG.request_random(address, method_name, on_error, key, None, 60u8);
         }
 
@@ -278,6 +278,11 @@ mod ice {
                         Some(ice_id) => {
                             ice_to_melt.insert(ice_id);
                             self.add_ticket(ticket_id);
+                            self.ticket_manager.update_non_fungible_data(
+                                &local_id,
+                                "result",
+                                None::<NonFungibleLocalId>,
+                            );
                         }
                         None => {
                             panic!("Not possible");
