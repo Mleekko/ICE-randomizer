@@ -236,7 +236,8 @@ mod ice {
             let mint_count = key % 100;
             let mut melt_count = key / 100;
 
-            let bucket = self.water.take(mint_count);
+            let amount = self.water.amount().min(Decimal::from(mint_count));
+            let bucket = self.water.take(amount);
             let (minted_ice_fungible, empty_bucket) = RRC404.freeze(bucket);
 
             let minted_ice = minted_ice_fungible.as_non_fungible();

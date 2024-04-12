@@ -1,4 +1,5 @@
 use std::env;
+use std::ops::Add;
 
 use dot_random_test_utils::{deploy_random_component, RandomTestEnv};
 use dot_random_test_utils::cargo::get_repo_sub_dir;
@@ -129,7 +130,7 @@ fn test_mint_partial() {
     let (mut random_env, test) = env.deploy(&mut test_runner);
 
     let amounts = AMOUNTS;
-    allocate_tokens(&mut test_runner, test, amounts);
+    allocate_tokens(&mut test_runner, test, &amounts);
 
     // Act
     // 1. Users lock tokens
@@ -186,7 +187,7 @@ fn test_mint_in_batches() {
     let (mut random_env, test) = env.deploy(&mut test_runner);
 
     let amounts = AMOUNTS;
-    allocate_tokens(&mut test_runner, test, amounts);
+    allocate_tokens(&mut test_runner, test, &amounts);
 
     // Act
     // 1. Users lock tokens
@@ -251,7 +252,7 @@ fn test_whole_flow() {
     let (mut random_env, test) = env.deploy(&mut test_runner);
 
     let amounts = [dec!(20), dec!(70), dec!(15), dec!(55), dec!(120)];
-    allocate_tokens(&mut test_runner, test, amounts);
+    allocate_tokens(&mut test_runner, test, &amounts);
 
     // Act
     // 1. Users lock tokens
@@ -282,12 +283,7 @@ fn test_whole_flow() {
         random_env.execute_next(&mut test_runner, index + 1);
 
         if index == 0 {
-            // advance time by 4hrs and 1 minute, so later we can melt
-            let round = test_runner.get_consensus_manager_state().round.number();
-            let current_time = test_runner.get_current_proposer_timestamp_ms();
-            let ts = current_time + 4 * 60 * 60 * 1000 + 61000;
-            let res = test_runner.advance_to_round_at_timestamp(Round::of(round + 1), ts);
-            res.expect_commit_success().outcome.expect_success();
+            advance_time(&mut test_runner);
         }
     }
 
@@ -344,6 +340,98 @@ fn test_whole_flow() {
     assert_eq!(dec!(0), balance_water);
 }
 
+#[test]
+fn test_can_withdraw_during_mint() {
+    // Arrange
+    // No idea why, but `advance_to_round_at_timestamp()` requires this custom genesis to succeed.
+    let custom_genesis = CustomGenesis::default(Epoch::of(1), CustomGenesis::default_consensus_manager_config());
+    let mut test_runner = TestRunnerBuilder::new().with_custom_genesis(custom_genesis).without_trace().build();
+    let env = TestEnv::init(&mut test_runner);
+    let (mut random_env, test) = env.deploy(&mut test_runner);
+
+    let amounts = [dec!(4), dec!(5), dec!(6)];
+    allocate_tokens(&mut test_runner, test, &amounts);
+
+    // Act
+    // 1. Users lock tokens
+    for index in 0..amounts.len() {
+        deposit_water(&mut test_runner, test, env.users[index], amounts[index]);
+    }
+
+    // 2. Owner triggers random mint with the first batch marking 10 to be melted
+    let receipt = test_runner.execute_manifest(
+        ManifestBuilder::new()
+            .lock_fee_from_faucet()
+            .create_proof_from_account_of_amount(env.owner.address, test.randomizer_owner, dec!(1))
+            .call_method(
+                test.ice_randomizer,
+                "mint",
+                manifest_args!(40u8, 10u8),
+            )
+            .build(), vec![NonFungibleGlobalId::from_public_key(&env.owner.key)]);
+    let result = receipt.expect_commit_success();
+    result.outcome.expect_success();
+
+    // 3. Simulate a TX that calls RandomComponent.execute() to do the actual mint - should mint an NFT
+    random_env.execute_next(&mut test_runner, 1);
+
+    // Assert minted 15 ICE
+    let balance_ice = test_runner.get_component_balance(test.ice_randomizer, RRC404_ICE);
+    assert_eq!(dec!(15), balance_ice);
+    let balance_water = test_runner.get_component_balance(test.ice_randomizer, RRC404_WATER);
+    assert_eq!(dec!(0), balance_water);
+    // Assert 10 NFTs to melt
+    let state: IceRandomizerState = test_runner.component_state::<IceRandomizerState>(test.ice_randomizer);
+    assert_eq!(10, state.melt_list.len());
+
+    // 4. One user withdraws [-4 ICE]
+    withdraw_ice(&mut test_runner, test, env.users[0], amounts[0]);
+
+    advance_time(&mut test_runner);
+
+    // 5. Owner melts the first 10 minted NFTS - just N actually melt
+    let receipt = test_runner.execute_manifest(
+        ManifestBuilder::new()
+            .lock_fee_from_faucet()
+            .create_proof_from_account_of_amount(env.owner.address, test.randomizer_owner, dec!(1))
+            .call_method(
+                test.ice_randomizer,
+                "melt",
+                manifest_args!(),
+            )
+            .build(), vec![NonFungibleGlobalId::from_public_key(&env.owner.key)]);
+    let result = receipt.expect_commit_success();
+    result.outcome.expect_success();
+
+    let balance_ice = test_runner.get_component_balance(test.ice_randomizer, RRC404_ICE);
+    assert_eq!(dec!(3), balance_ice);
+    let balance_water = test_runner.get_component_balance(test.ice_randomizer, RRC404_WATER);
+    assert_eq!(dec!(8), balance_water);
+    // Assert 0 NFTs to melt
+    let state: IceRandomizerState = test_runner.component_state::<IceRandomizerState>(test.ice_randomizer);
+    assert_eq!(0, state.melt_list.len());
+
+
+    // 5. Users withdraw ICE
+    for index in 1..amounts.len() {
+        let account = env.users[index];
+        withdraw_ice(&mut test_runner, test, account, amounts[index]);
+        let balance_water = test_runner.get_component_balance(account.address, RRC404_WATER);
+        let balance_ice = test_runner.get_component_balance(account.address, RRC404_ICE);
+        println!("Balance: {} -> {:?}/{:?}", index,
+                 balance_water,
+                 balance_ice
+        );
+        assert_eq!(Decimal::from(amounts[index]), balance_ice + balance_water);
+    }
+
+    // Assert component is empty
+    let balance_ice = test_runner.get_component_balance(test.ice_randomizer, RRC404_ICE);
+    assert_eq!(dec!(0), balance_ice);
+    let balance_water = test_runner.get_component_balance(test.ice_randomizer, RRC404_WATER);
+    assert_eq!(dec!(0), balance_water);
+}
+
 
 fn sum(amounts: &[Decimal]) -> Decimal {
     let mut sum = Decimal::zero();
@@ -353,22 +441,18 @@ fn sum(amounts: &[Decimal]) -> Decimal {
     return sum;
 }
 
-pub fn allocate_tokens(runner: &mut TestRunner<NoExtension, InMemorySubstateDatabase>, test: DeployedEnv, amounts: [Decimal; 5]) {
+pub fn allocate_tokens(runner: &mut TestRunner<NoExtension, InMemorySubstateDatabase>, test: DeployedEnv, amounts: &[Decimal]) {
+    let mut builder = ManifestBuilder::new()
+        .lock_fee_from_faucet()
+        .withdraw_from_account(test.env.owner.address, RRC404_WATER, sum(&amounts));
+    for i in 0..amounts.len() {
+        let bucket = format!("b{}", i);
+        builder = builder
+            .take_from_worktop(RRC404_WATER, amounts[i], bucket.clone())
+            .try_deposit_or_abort(test.env.users[i].address, None, bucket);
+    }
     let receipt = runner.execute_manifest(
-        ManifestBuilder::new()
-            .lock_fee_from_faucet()
-            .withdraw_from_account(test.env.owner.address, RRC404_WATER, sum(&amounts))
-            .take_from_worktop(RRC404_WATER, amounts[0], "b1")
-            .take_from_worktop(RRC404_WATER, amounts[1], "b2")
-            .take_from_worktop(RRC404_WATER, amounts[2], "b3")
-            .take_from_worktop(RRC404_WATER, amounts[3], "b4")
-            .take_from_worktop(RRC404_WATER, amounts[4], "b5")
-            .try_deposit_or_abort(test.env.users[0].address, None, "b1")
-            .try_deposit_or_abort(test.env.users[1].address, None, "b2")
-            .try_deposit_or_abort(test.env.users[2].address, None, "b3")
-            .try_deposit_or_abort(test.env.users[3].address, None, "b4")
-            .try_deposit_or_abort(test.env.users[4].address, None, "b5")
-            .build(), vec![NonFungibleGlobalId::from_public_key(&test.env.owner.key)]);
+        builder.build(), vec![NonFungibleGlobalId::from_public_key(&test.env.owner.key)]);
     let result = receipt.expect_commit_success();
     result.outcome.expect_success();
 }
@@ -409,4 +493,14 @@ pub fn withdraw_ice(runner: &mut TestRunner<NoExtension, InMemorySubstateDatabas
             .build(), vec![NonFungibleGlobalId::from_public_key(&user.key)]);
     let result = receipt.expect_commit_success();
     result.outcome.expect_success();
+}
+
+
+/// advance time by 4hrs, so later we can melt
+fn advance_time(test_runner: &mut TestRunner<NoExtension, InMemorySubstateDatabase>) {
+    let round = test_runner.get_consensus_manager_state().round.number();
+    let current_time = test_runner.get_current_proposer_timestamp_ms();
+    let ts = current_time + 4 * 60 * 60 * 1000;
+    let res = test_runner.advance_to_round_at_timestamp(Round::of(round + 1), ts);
+    res.expect_commit_success().outcome.expect_success();
 }
