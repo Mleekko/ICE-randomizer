@@ -12,8 +12,9 @@ struct RandomIceTicket {
 mod ice {
     /* Rrc404 Component */
     extern_blueprint!(
+        "package_rdx1phtl6486q77dvsusa4pkft4dt5yzgfyt3p5grmynm76ue79epwz9k8",
         // "package_tdx_2_1p4nswlz52epvzayucenlch40sujdv22scuqy28zc7we5w0ly82mrat",
-        "package_sim1p5qqqqqqqqqqqqqqqqqpecwwrnsqqqqqqqqqqqqqqqqqqqqqj5zvnh",
+        // "package_sim1p5qqqqqqqqqqqqqqqqqpecwwrnsqqqqqqqqqqqqqqqqqqqqqj5zvnh",
         Rrc404NFT {
             fn freeze(&self, deposit: Bucket) -> (Bucket, Bucket);
             fn melt(&self, nft_bucket: Bucket) -> Bucket;
@@ -21,22 +22,26 @@ mod ice {
     );
     const RRC404: Global<Rrc404NFT> = global_component!(
         Rrc404NFT,
+        "component_rdx1czscv9f2mv034hewjplej5ef4f2ecug2fxxelfpgxrsrhw4mglq2yp"
         // "component_tdx_2_1czuyqr546ptgwn40gtearfe39jfp4w55jx8fsfyanna896l7s4sc8a"
-        "component_sim1cqqqqqqqqqqqqqqqqqqpecwwrnsqqqqqqqqqqqqqqqqqqqqqgguvvr"
+        // "component_sim1cqqqqqqqqqqqqqqqqqqpecwwrnsqqqqqqqqqqqqqqqqqqqqqgguvvr"
     );
     const WATER_RESOURCE: ResourceManager = resource_manager!(
+        "resource_rdx1t4h4396mukhpzdrr5sfvegjsxl8q7a34q2vkt4quxcxahna8fucuz4"
         // "resource_tdx_2_1thpd5wxvj7pz4u67z39l424vd4ajnnnx2sjff8wktq6cnlwkenwe0e"
-        "resource_sim1t5qqqqqqqqqqqqqqqqqpecwwrnsqqqqqqqqqqqqqqqqqqqqqs3ask4"
+        // "resource_sim1t5qqqqqqqqqqqqqqqqqpecwwrnsqqqqqqqqqqqqqqqqqqqqqs3ask4"
     );
     const ICE_RESOURCE: ResourceManager = resource_manager!(
+        "resource_rdx1n2y299ekzx4au2v9yjmxzu650ulvk5ndx3u5tlevfclk0uvdgs30px"
         // "resource_tdx_2_1n2aclv9vx3z2hxxxafswfqlpt3cvqfkw7dc4eqrp8n4yan6s47ad0n"
-        "resource_sim1ngqqqqqqqqqqqqqqqqqpecwwrnsqqqqqqqqqqqqqqqqqqqqq6lw2hr"
+        // "resource_sim1ngqqqqqqqqqqqqqqqqqpecwwrnsqqqqqqqqqqqqqqqqqqqqq6lw2hr"
     );
 
     /* .Random */
     extern_blueprint!(
+        "package_rdx1p55tuj30yf842s6cjraqz5arhtf98jcjtmkjcmxrn6efvvc829g2jf",
         // "package_tdx_2_1p527rqesssgtadvr23elxrnrt6rw2jnfa5ke8n85ykcxmvjt06cvv6",
-        "package_sim1p5qqqqqqqyqszqgqqqqqqqgpqyqsqqqqxumnwqgqqqqqqycnnzj0hj",
+        // "package_sim1p5qqqqqqqyqszqgqqqqqqqgpqyqsqqqqxumnwqgqqqqqqycnnzj0hj",
         RandomComponent {
             fn request_random(&self, address: ComponentAddress, method_name: String, on_error: String,
                 key: u32, badge_opt: Option<FungibleBucket>, expected_fee: u8) -> u32;
@@ -44,12 +49,14 @@ mod ice {
     );
     const RNG: Global<RandomComponent> = global_component!(
         RandomComponent,
+        "component_rdx1cqz6m403yq9xzqj7g5ujq3yd6w0ge8shur53z8754gj8rxde8xd0sr"
         // "component_tdx_2_1czzxynn4m4snhattvdf6knlyfs3ss70yufj975uh2mdhp8jes938sd"
-        "component_sim1cqqqqqqqqyqszqgqqqqqqqgpqyqsqqqqxumnwqgqqqqqqycnf7v0gx"
+        // "component_sim1cqqqqqqqqyqszqgqqqqqqqgpqyqsqqqqxumnwqgqqqqqqycnf7v0gx"
     );
     const RANDOM_BADGE: ResourceManager = resource_manager!(
+        "resource_rdx1thufp23mqn3hefdza383tk2fxs3rvwv97djzq8x5czzdqrgkc807wj"
         // "resource_tdx_2_1t59tdtsvv7sc0nej3z585w5nmqpq3z5cms7xdwvkyqaqreu9j3rvyu"
-        "resource_sim1t5qqqqqqqyqszqgqqqqqqqgpqyqsqqqqxumnwqgqqqqqqycn38dnjs"
+        // "resource_sim1t5qqqqqqqyqszqgqqqqqqqgpqyqsqqqqxumnwqgqqqqqqycn38dnjs"
     );
 
 
@@ -125,8 +132,9 @@ mod ice {
                 .metadata(metadata!(
                     init {
                         "name" => "IceRandomizer Owner", locked;
-                        "symbol" => "ICERANDOWNER", locked;
+                        "symbol" => "IRANDOWNER", locked;
                         "description" => "IceRandomizer Owner", locked;
+                        "icon_url" => Url::of("https://ice-rng.radix.live/image/ice-randomizer-icon.png"), locked;
                         "tags" => vec!("badge", "rng", "ice"), locked;
                     }
                 ))
@@ -139,8 +147,9 @@ mod ice {
                 rule!(require(global_caller(component_address)))))
                 .metadata(metadata!(
                     init {
-                        "name" => "ICERAND", locked;
+                        "name" => "IRAND", locked;
                         "description" => "Ice Randomizer Ticket", locked;
+                        "icon_url" => Url::of("https://ice-rng.radix.live/image/ice-randomizer-icon.png"), locked;
                     }
                 ))
                 .mint_roles(mint_roles! {
